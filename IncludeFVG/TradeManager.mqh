@@ -93,7 +93,7 @@ public:
          if(m_trade.BuyLimit(Config.LotSize, entryPrice, Symbol(), slPrice, tpPrice, ORDER_TIME_GTC, 0, fvg.name))
            {
              ulong ticket = m_trade.ResultOrder();
-             Logger.Info(StringFormat("Order Placed | Ticket: %I64u | Magic: %I64u | Type: %s | Price: %.5f | SL: %.5f | TP: %.5f", 
+             Logger.Info("TradeManager", StringFormat("Order Placed | Ticket: %I64u | Magic: %I64u | Type: %s | Price: %.5f | SL: %.5f | TP: %.5f", 
                                       ticket, fvgMagic, typeStr, entryPrice, slPrice, tpPrice));
              return ticket;
            }
@@ -122,7 +122,7 @@ public:
          if(m_trade.SellLimit(Config.LotSize, entryPrice, Symbol(), slPrice, tpPrice, ORDER_TIME_GTC, 0, fvg.name))
            {
              ulong ticket = m_trade.ResultOrder();
-             Logger.Info(StringFormat("Order Placed | Ticket: %I64u | Magic: %I64u | Type: %s | Price: %.5f | SL: %.5f | TP: %.5f", 
+             Logger.Info("TradeManager", StringFormat("Order Placed | Ticket: %I64u | Magic: %I64u | Type: %s | Price: %.5f | SL: %.5f | TP: %.5f", 
                                       ticket, fvgMagic, typeStr, entryPrice, slPrice, tpPrice));
              return ticket;
            }
@@ -136,7 +136,7 @@ public:
       int stopLevel = (int)SymbolInfoInteger(Symbol(), SYMBOL_TRADE_STOPS_LEVEL);
       int freezeLevel = (int)SymbolInfoInteger(Symbol(), SYMBOL_TRADE_FREEZE_LEVEL); 
       
-      Logger.Error(StringFormat("Order FAILED | Type: %s | Price: %.5f | Ask: %.5f | Bid: %.5f | StopLvl: %d | Err: %u (%s)", 
+      Logger.Error("TradeManager", StringFormat("Order FAILED | Type: %s | Price: %.5f | Ask: %.5f | Bid: %.5f | StopLvl: %d | Err: %u (%s)", 
                                 typeStr, entryPrice, ask, bid, stopLevel, err, desc));
       return 0;
      }
@@ -155,13 +155,13 @@ private:
          // MT5: Buy Limit price must be < Ask.
          // And distance > StopsLevel.
          if(entryPrice >= ask) 
-           {
-            Logger.Info(StringFormat("Skipping Buy Limit: Price %.5f is >= Ask %.5f (Market is below Entry)", entryPrice, ask));
-            return false;
-           }
+            {
+             Logger.Info("TradeManager", StringFormat("Skipping Buy Limit: Price %.5f is >= Ask %.5f (Market is below Entry)", entryPrice, ask));
+             return false;
+            }
          if(ask - entryPrice < stopsLevel)
            {
-             Logger.Info(StringFormat("Skipping Buy Limit: Price %.5f too close to Ask %.5f (Dist < StopLevel %.5f)", entryPrice, ask, stopsLevel));
+             Logger.Info("TradeManager", StringFormat("Skipping Buy Limit: Price %.5f too close to Ask %.5f (Dist < StopLevel %.5f)", entryPrice, ask, stopsLevel));
              return false;
            }
         }
@@ -170,12 +170,12 @@ private:
          // Sell Limit must be above Bid.
          if(entryPrice <= bid)
            {
-            Logger.Info(StringFormat("Skipping Sell Limit: Price %.5f is <= Bid %.5f (Market is above Entry)", entryPrice, bid));
+            Logger.Info("TradeManager", StringFormat("Skipping Sell Limit: Price %.5f is <= Bid %.5f (Market is above Entry)", entryPrice, bid));
             return false;
            }
          if(entryPrice - bid < stopsLevel)
            {
-             Logger.Info(StringFormat("Skipping Sell Limit: Price %.5f too close to Bid %.5f (Dist < StopLevel %.5f)", entryPrice, bid, stopsLevel));
+             Logger.Info("TradeManager", StringFormat("Skipping Sell Limit: Price %.5f too close to Bid %.5f (Dist < StopLevel %.5f)", entryPrice, bid, stopsLevel));
              return false;
            }
         }

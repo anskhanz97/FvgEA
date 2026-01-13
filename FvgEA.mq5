@@ -4,184 +4,253 @@
 //+------------------------------------------------------------------+
 #property copyright "Copyright 2026, Modular FVG EA"
 #property link      ""
-#property version   "1.00"
+#property version   "2.00"
 
 #include "IncludeFVG/Config.mqh"
 #include "IncludeFVG/Common.mqh"
 #include "IncludeFVG/FvgDetector.mqh"
 #include "IncludeFVG/VisualManager.mqh"
 #include "IncludeFVG/TradeManager.mqh"
+#include "IncludeFVG/ExecutionEngine.mqh"
+#include "IncludeFVG/MarketInfo.mqh"
 
 // System Components
-CFvgDetector   *Detector;
-CVisualManager *Visuals;
-CTradeManager  *Trader;
+CFvgDetector     *DetectorM5; // Macro
+CFvgDetector     *DetectorM1; // Micro
+CVisualManager   *Visuals;
+CTradeManager    *Trader;
+CExecutionEngine *Engine;
 
 // State Vars
-int            g_last_fvg_count = 0;
-datetime       g_last_bar_time = 0;
+datetime g_last_m5_time = 0;
+datetime g_last_m1_time = 0;
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 int OnInit()
   {
+   // Validate Chart
+   if(Period() != PERIOD_M1)
+     {
+      Alert("EA must be attached to M1 Chart!");
+      // return INIT_FAILED; // Allow debug for now but warn
+     }
+
    // Initialize Components
-   Detector = new CFvgDetector();
+   DetectorM5 = new CFvgDetector(PERIOD_M5);
+   DetectorM1 = new CFvgDetector(PERIOD_M1);
    Visuals = new CVisualManager();
    Trader = new CTradeManager();
+   Engine = new CExecutionEngine();
    
-   // --- Historical Scan ---
-   Logger.Info("Starting Historical Scan...");
+   Logger.SetLevel(LOG_LEVEL_DEBUG); // As requested by user for detailed logs
+   Logger.Info("Init", "Multi-Timeframe FVG EA Started. M5 Context / M1 Execution.");
    
-   // Calculate start index for N days ago
-   int days = Config.HistoryDays;
-   datetime start_time = TimeCurrent() - (days * PeriodSeconds(PERIOD_D1));
-   int start_index = iBarShift(Symbol(), Period(), start_time);
-   if(start_index == -1) start_index = Bars(Symbol(), Period()) - 1; // Max avail
-   
-   // Get Rates
-   MqlRates rates[];
-   ArraySetAsSeries(rates, false); // Oldest is 0
-   int copied = CopyRates(Symbol(), Period(), 0, start_index + 10, rates);
-   
-   if(copied > 3)
-     {
-      // Detect from 0 (Oldest loaded)
-      Detector.Detect(rates, copied, 0); 
-      
-      // Process Historical FVGs (Visuals Only)
-      FvgStruct fvgs[];
-      Detector.GetFVGs(fvgs);
-      
-      for(int i=0; i<ArraySize(fvgs); i++)
-        {
-         Visuals.UpdateVisuals(fvgs[i]);
-        }
-        
-      g_last_fvg_count = ArraySize(fvgs); // Mark these as "Old"
-      Logger.Info("Historical Scan Complete. Found: " + IntegerToString(g_last_fvg_count));
-     }
+   // --- Historical Scan (Optional, mostly for Visual Context) ---
+   // We scan M5 history to populate 'Context' list
    
    return(INIT_SUCCEEDED);
   }
+
 //+------------------------------------------------------------------+
 //| Expert deinitialization function                                 |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-   Visuals.ClearAll(); // Optional: Clean up on exit? User asked extended boxes. Maybe keep? 
-   // Usually standard to clear. User: "keep extending...".
-   // If we remove, we lose record. 
-   // Strategy Tester cleans automatically. Live chart -> maybe nice to keep.
-   // But standard practice is clean up. I'll call ClearAll.
-   
-   delete Detector;
+   delete DetectorM5;
+   delete DetectorM1;
    delete Visuals;
    delete Trader;
+   delete Engine;
   }
+
 //+------------------------------------------------------------------+
 //| Expert tick function                                             |
 //+------------------------------------------------------------------+
 void OnTick()
   {
-   // Check New Bar
-   datetime check_time = iTime(Symbol(), Period(), 0);
-   bool isNewBar = (check_time != g_last_bar_time);
-   
-   if(isNewBar)
+   // 1. Check M5 Context (Update roughly every M5 bar or check close)
+   // We use iTime to detect new bar ON M5 from M1 Chart
+   datetime currentM5 = iTime(Symbol(), PERIOD_M5, 0);
+   if(currentM5 != g_last_m5_time)
      {
-      g_last_bar_time = check_time;
+      g_last_m5_time = currentM5;
       
-      // Load Rates (Need at least last few bars)
-      MqlRates rates[];
-      ArraySetAsSeries(rates, false);
-      int lookback = 100; // Look back enough for recent pattern
-      int copied = CopyRates(Symbol(), Period(), 0, lookback, rates);
-      
-      if(copied > 5)
-        {
-         // Start detection from recent bars.
-         // We only want to process the *newly closed* bar as 'Candle 3'.
-         // In array [0..99], 99 is current open bar. 98 is closed.
-         // Candle 3 should be index 98.
-         // Candle 2: 97. Candle 1: 96.
-         // Detector Loop: i is Candle 1. i+2 is Candle 3.
-         // If we want Candle 3 = 98 (latest closed), then i = 96.
-         // Detect(..., 96). Loop runs for i=96.
-         
-         int start_node = copied - 4; // Verify math: Total=100. 96,97,98. 
-         Detector.Detect(rates, copied, start_node);
-        }
+      // Update M5 Context
+      UpdateM5Context();
      }
      
-   // --- Every Tick: Update States & Trades ---
-   
-   FvgStruct fvgs[];
-   Detector.GetFVGs(fvgs);
-   int total = ArraySize(fvgs);
-   
-   double ask = SymbolInfoDouble(Symbol(), SYMBOL_ASK);
-   double bid = SymbolInfoDouble(Symbol(), SYMBOL_BID);
-   
-   for(int i=0; i<total; i++)
+   // 2. Check M1 Execution (Every M1 Bar)
+   datetime currentM1 = iTime(Symbol(), PERIOD_M1, 0);
+   if(currentM1 != g_last_m1_time)
      {
-      // Reference
-      FvgStruct fvg = fvgs[i];
-      bool changed = false;
+      g_last_m1_time = currentM1;
       
-      // 1. Process New items (Trade Placement)
-      if(i >= g_last_fvg_count) 
+      // Update M1 Candidates and Check Triggers (Only if MTF Enabled)
+      if(Config.UseMtfExecution)
         {
-         // Only trade if Untapped
-         if(fvg.state == FVG_STATE_UNTAPPED)
+         CheckTriggers();
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Helper: Update M5 Context                                        |
+//+------------------------------------------------------------------+
+void UpdateM5Context()
+  {
+   // 1. Get Rates
+   MqlRates rates[];
+   int count = 200; // Scan last 200 M5 bars
+   int copied = CMarketInfo::GetRates(Symbol(), PERIOD_M5, count, rates);
+   
+   if(copied > 5)
+     {
+      // 2. Reset Detector (to avoid duplicates if we rescan full list)
+      DetectorM5.Clear(); 
+      DetectorM5.Detect(rates, copied, 0);
+      
+      // 3. Get Candidates
+      FvgStruct candidates[];
+      DetectorM5.GetFVGs(candidates);
+      
+      // 4. Validate Candidates (Structure, Filters)
+      // This implementation passes ALL candidates to Engine, 
+      // but ideally we filter here or inside Engine.
+      // Let's Filter here to respect the strict logic.
+      
+      FvgStruct validFvgs[];
+      int vCount = 0;
+      
+      for(int i=0; i<ArraySize(candidates); i++)
+        {
+         FvgStruct f = candidates[i];
+         
+         // A. Candle Quality (using index from rates? We need index in 'rates' array)
+         // The Detector doesn't store 'index', it stores Time.
+         // We need to find index in 'rates' or modify Detector to store index relative to batch.
+         // Easier: Use Time to find index in 'rates'
+         int idx = -1;
+         // Reverse search or assume order. Rates are [0..N-1]. 
+         // f.creationTime is time of Candle 3.
+         for(int k=0; k<copied; k++) { if(rates[k].time == f.creationTime) { idx=k; break; } }
+         
+         // Check index validity
+         if(idx == -1) continue;
+         int dispIdx = idx - 1; // Candle 2 (Displacement)
+         
+         // VISUALIZE ALL CANDIDATES (For Testing Phase)
+         Visuals.UpdateVisuals(f);
+         
+         // ---------------- FILTERS ----------------
+         
+         // 2. Candle Quality Filter
+         if(Config.UseCandleQuality)
            {
-            // Place Order
-            ulong t = Trader.PlaceOrder(fvg);
-            if(t > 0)
+            if(!CFilters::IsCandleQuality(rates, dispIdx, f.name, Config.MinBodyRatio, Config.AvgBodyMult)) continue;
+           }
+         
+         // 3. Trend Filter
+         if(Config.UseTrendFilter)
+           {
+            if(!CFilters::IsTrendAligned(rates, idx, Config.TrendEmaPeriod, f.type)) 
               {
-               fvg.ticket = t;
-               Detector.UpdateFVG(i, fvg); // Sync Ticket
+               Logger.Debug("Main", "M5 FVG Rejected by Trend: " + f.name);
+               continue;
               }
            }
-         // Mark processed
-         // Will happen at end of loop by updating g_last_fvg_count logic
-        }
-        
-      // 2. Check for Tap (Live Visual Update)
-      // Only for Untapped.
-      if(fvg.state == FVG_STATE_UNTAPPED)
-        {
-         bool tapped = false;
-         if(fvg.type == FVG_BULLISH)
+           
+         // 4. Volatility Filter (ATR)
+         if(Config.UseAtrFilter)
            {
-            if(bid <= fvg.topPrice) tapped = true; // Bid hits Limit Entry
+            // Note: InpMinAtrPips is in PIPS. convert to Price.
+            // Assumption: Symbol Point = 0.00001 (5 digits) -> Pip = 10 Points.
+            // Or Symbol Point = 0.01 (JPY).
+            // Safer: Point() * 10 * MinPips
+            double minRange = SymbolInfoDouble(Symbol(), SYMBOL_POINT) * 10 * Config.MinAtrPips;
+            if(!CFilters::IsVolatilityValid(rates, idx, Config.AtrPeriod, minRange, f.name)) continue;
            }
-         else
+         
+         // 5. Structure Filter (BOS/Sweep)
+         if(Config.UseStructure)
            {
-            if(ask >= fvg.bottomPrice) tapped = true;
+            if(!CStructure::CheckContext(rates, idx, f.type, f.name, Config.StructLookback)) 
+              {
+               Logger.Debug("Main", "M5 FVG Rejected by Structure: " + f.name);
+               continue;
+              }
            }
            
-         if(tapped)
+         // Accepted for Execution
+         ArrayResize(validFvgs, vCount+1);
+         validFvgs[vCount] = f;
+         vCount++; 
+         
+         // ---------------- EXECUTION LOGIC ----------------
+         
+         // If Direct M5 Execution (No MTF)
+         if(!Config.UseMtfExecution)
            {
-            fvg.state = FVG_STATE_TAPPED;
-            fvg.result = FVG_RESULT_TRADED; // It's live so we assume traded? Or check order?
-            fvg.tapTime = TimeCurrent();
-            Detector.UpdateFVG(i, fvg); // Sync State
-            changed = true;
-           }
+             // Make sure we haven't traded this yet
+             // Check local ticket or state
+             if(f.ticket == 0 && f.state == FVG_STATE_UNTAPPED)
+               {
+                ulong ticket = Trader.PlaceOrder(f);
+                if(ticket > 0)
+                  {
+                   f.ticket = ticket;
+                   f.state = FVG_STATE_FILLED; // Mark as handled
+                   f.result = FVG_RESULT_TRADED;
+                   
+                   // Update the source in Detector so we don't re-fire next tick
+                   DetectorM5.UpdateFVG(i, f);
+                   
+                   Logger.Info("Main", "Direct M5 Execution for " + f.name);
+                  }
+               }
+           } 
         }
       
-      // 4. Update Visuals
-      if(changed || i >= g_last_fvg_count)
-        {
-         Visuals.UpdateVisuals(fvg);
-        }
-        
-      // Save back if needed (conceptually)
-      // For this turn, I will assume I add the Update method.
+      // 5. Update Engine
+      Engine.UpdateContext(validFvgs);
      }
-     
-   g_last_fvg_count = total;
+  }
+
+//+------------------------------------------------------------------+
+//| Helper: Check M1 Triggers                                        |
+//+------------------------------------------------------------------+
+void CheckTriggers()
+  {
+   // 1. Get M1 Rates
+   MqlRates rates[];
+   int count = 50; // Short lookback
+   int copied = CMarketInfo::GetRates(Symbol(), PERIOD_M1, count, rates);
+   
+   if(copied > 5)
+     {
+      DetectorM1.Clear();
+      DetectorM1.Detect(rates, copied, 0);
+      
+      FvgStruct m1_fvgs[];
+      DetectorM1.GetFVGs(m1_fvgs);
+      
+      // 2. Pass to Engine for Intersection Check
+      Engine.ProcessTriggers(m1_fvgs, Trader);
+      
+      // 3. Visuals for M1 (Optional, maybe only show Traded ones?)
+      // User: "prioritize only those which overlap... displayed inside"
+      // Detailed logic: Only draw IF inside M5.
+      // Current ProcessTriggers marks them as FILLED triggers or similar?
+      // Visuals can be handled here if we check status.
+      for(int i=0; i<ArraySize(m1_fvgs); i++)
+        {
+         // If "Ticket > 0" or we can add a flag "IsOverlapping"
+         if(m1_fvgs[i].ticket > 0) // Traded / Valid
+           {
+            Visuals.UpdateVisuals(m1_fvgs[i]);
+           }
+        }
+     }
   }
 //+------------------------------------------------------------------+

@@ -1,17 +1,11 @@
 //+------------------------------------------------------------------+
-//|                                                       Common.mqh |
+//|                                                      Structs.mqh |
 //|                                                   Modular FVG EA |
 //+------------------------------------------------------------------+
 #property strict
 
-#ifndef COMMON_MQH
-#define COMMON_MQH
-
-#include "Logger.mqh"
-
-// ==================================================================
-//                        CORE STRUCTURES
-// ==================================================================
+#ifndef STRUCTS_MQH
+#define STRUCTS_MQH
 
 // FVG Type
 enum ENUM_FVG_TYPE
@@ -65,7 +59,6 @@ struct FvgStruct
    // Execution Tracking
    ulong             ticket;
    datetime          tapTime;
-   ENUM_FVG_RESULT   result;           // Result Tracking
    
    // Constructor
    FvgStruct()
@@ -83,9 +76,7 @@ struct FvgStruct
       isStructureValid = false;
       ticket = 0;
       tapTime = 0;
-      result = FVG_RESULT_NONE;
      }
   };
-
 #endif
 //+------------------------------------------------------------------+

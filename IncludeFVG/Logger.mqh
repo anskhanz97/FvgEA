@@ -3,12 +3,14 @@
 //|                                                   Modular FVG EA |
 //+------------------------------------------------------------------+
 #property strict
+#ifndef LOGGER_MQH
+#define LOGGER_MQH
 
 enum ENUM_LOG_LEVEL
   {
-   LOG_LEVEL_INFO,
-   LOG_LEVEL_DEBUG,
-   LOG_LEVEL_ERROR
+   LOG_LEVEL_DEBUG = 0,
+   LOG_LEVEL_INFO  = 1,
+   LOG_LEVEL_ERROR = 2
   };
 
 class CLogger
@@ -22,25 +24,41 @@ public:
 
    void              SetLevel(ENUM_LOG_LEVEL level) { m_level = level; }
 
-   void              Info(string msg)
+   // Basic Log with Tag
+   void Log(string tag, string msg)
+     {
+      PrintFormat("[%s] %s", tag, msg);
+     }
+
+   // Detailed Info
+   void Info(string source, string msg)
      {
       if(m_level <= LOG_LEVEL_INFO)
-         Print("[INFO] ", msg);
+         PrintFormat("[INFO][%s] %s", source, msg);
      }
 
-   void              Debug(string msg)
+   // Debug for granular tracing
+   void Debug(string source, string msg)
      {
       if(m_level <= LOG_LEVEL_DEBUG)
-         Print("[DEBUG] ", msg);
+         PrintFormat("[DEBUG][%s] %s", source, msg);
+     }
+     
+   // Overload for numeric debug
+   void DebugVal(string source, string msg, double val)
+     {
+      if(m_level <= LOG_LEVEL_DEBUG)
+         PrintFormat("[DEBUG][%s] %s: %.5f", source, msg, val);
      }
 
-   void              Error(string msg)
+   // Error tracking
+   void Error(string source, string msg)
      {
-      if(m_level <= LOG_LEVEL_ERROR)
-         Print("[ERROR] ", msg);
+      PrintFormat("[ERROR][%s] %s", source, msg);
      }
   };
 
 // Global Logger Instance
 CLogger Logger;
+#endif
 //+------------------------------------------------------------------+

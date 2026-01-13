@@ -19,39 +19,71 @@ public:
       // If object doesn't exist, create it
       if(ObjectFind(0, ObjName) < 0)
         {
-         // Start from fvg.startTime (Candle 1) instead of creationTime
          ObjectCreate(0, ObjName, OBJ_RECTANGLE, 0, fvg.startTime, fvg.topPrice, fvg.creationTime, fvg.bottomPrice);
          
-         // User Request: "Box should be empty only boundary walls"
-         ObjectSetInteger(0, ObjName, OBJPROP_FILL, false); // No Fill
+         ObjectSetInteger(0, ObjName, OBJPROP_FILL, false); // No Fill by default
          ObjectSetInteger(0, ObjName, OBJPROP_BACK, true);  // Background
-         ObjectSetInteger(0, ObjName, OBJPROP_WIDTH, 1);    // Thin border
-         ObjectSetInteger(0, ObjName, OBJPROP_STYLE, STYLE_DOT); // Dotted lines
+         ObjectSetInteger(0, ObjName, OBJPROP_WIDTH, 1);
+         ObjectSetInteger(0, ObjName, OBJPROP_STYLE, STYLE_DOT); 
+         
+         // Distinction by Timeframe
+         if(fvg.timeframe == PERIOD_M1)
+           {
+             // Overlap Trigger - Foreground
+             ObjectSetInteger(0, ObjName, OBJPROP_STYLE, STYLE_DASH); 
+             ObjectSetInteger(0, ObjName, OBJPROP_WIDTH, 1); 
+             ObjectSetInteger(0, ObjName, OBJPROP_BACK, false); // Draw ON TOP of M5 Box
+           }
+         else
+           {
+             // M5 Context - Subtle
+             ObjectSetInteger(0, ObjName, OBJPROP_STYLE, STYLE_DOT); 
+             ObjectSetInteger(0, ObjName, OBJPROP_WIDTH, 1);
+           }
         }
       
-      // Update properties based on state
-      if(fvg.state == FVG_STATE_UNTAPPED)
+      // COLORS & EXTENSION
+      if(fvg.timeframe == PERIOD_M1)
         {
-         ObjectSetInteger(0, ObjName, OBJPROP_COLOR, Config.ColorUntapped);
-         ObjectSetInteger(0, ObjName, OBJPROP_RAY_RIGHT, true); // Extend indefinitely
-        }
-      else if(fvg.state == FVG_STATE_TAPPED)
-        {
-         ObjectSetInteger(0, ObjName, OBJPROP_COLOR, Config.ColorTapped);
-         ObjectSetInteger(0, ObjName, OBJPROP_RAY_RIGHT, false); // Stop extending
+         // M1 Colors (Active Triggers)
+         color c = (fvg.type == FVG_BULLISH) ? clrLimeGreen : clrRed; // Hardcoded or Config? 
+         // Use Config but maybe darker/brighter?
+         ObjectSetInteger(0, ObjName, OBJPROP_COLOR, c);
          
-         // Set Right Time to Tap Time
+         // Only extend if Untapped? M1 triggers behave same.
+         ObjectSetInteger(0, ObjName, OBJPROP_RAY_RIGHT, (fvg.state == FVG_STATE_UNTAPPED));
+         
+         // If Filled (Ticket > 0), maybe change style to Solid to mark execution? 
+         // Or keep dashed but maybe thicker? Let's keep it simple as requested.
+         if(fvg.ticket > 0) ObjectSetInteger(0, ObjName, OBJPROP_WIDTH, 2);
+        }
+      else
+        {
+         // M5 Colors (Context)
+         // Use Gray or similar to indicate "Zone"
+         color c = clrDarkGray; // Context
+         ObjectSetInteger(0, ObjName, OBJPROP_COLOR, c);
+         
+         // M5 extend until invalidated?
+         // Ray Right to show the "Zone" persisting.
+         ObjectSetInteger(0, ObjName, OBJPROP_RAY_RIGHT, true);
+        }
+        
+      // Handle "Tapped/Closed" visual logic if needed (e.g. stop ray)
+      if(fvg.state == FVG_STATE_TOUCHED || fvg.state == FVG_STATE_FILLED)
+        {
+         if(fvg.timeframe == PERIOD_M1)
+            ObjectSetInteger(0, ObjName, OBJPROP_RAY_RIGHT, false);
+         
          if(fvg.tapTime > 0)
             ObjectSetInteger(0, ObjName, OBJPROP_TIME, 1, fvg.tapTime);
-         else
-            ObjectSetInteger(0, ObjName, OBJPROP_TIME, 1, TimeCurrent()); // Fallback
         }
      }
      
    void ClearAll()
      {
-      ObjectsDeleteAll(0, "BU-Fvg_");
-      ObjectsDeleteAll(0, "BR-Fvg_");
+      ObjectsDeleteAll(0, "BU-");
+      ObjectsDeleteAll(0, "BR-");
      }
   };
 //+------------------------------------------------------------------+
