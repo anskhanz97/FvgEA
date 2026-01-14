@@ -98,7 +98,7 @@ public:
             // ATR would need external calculation or passed in. 
             // For now, raw detection doesn't filter.
             
-            Logger.Debug("Detector", StringFormat("FVG %s Found at %s. Range: %.5f - %.5f", 
+            Logger.Debug("Detector", StringFormat("FVG %s Found at %s. Range: %.5f - %.5f" + " [Already Tapped]", 
                         fvg.name, TimeToString(fvg.creationTime), fvg.bottomPrice, fvg.topPrice));
             
             // Initial State Check (History)

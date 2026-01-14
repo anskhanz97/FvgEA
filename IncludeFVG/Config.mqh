@@ -105,6 +105,43 @@ public:
       // Initialize Logger
       Logger.SetLevel(InpLogLevel);
      }
+     
+   void LogSettings()
+     {
+      Logger.Info("Config", "--- Current Settings ---");
+      
+      Logger.Info("Config", "--- Risk ---");
+      Logger.Info("Config", StringFormat("Lot Size: %.2f", LotSize));
+      Logger.Info("Config", StringFormat("SL: %d | TP: %d", SLPips, TPPips));
+      
+      Logger.Info("Config", "--- FVG ---");
+      Logger.Info("Config", StringFormat("History Days: %d", HistoryDays));
+      
+      string entryStr = "";
+      switch(EntryMode)
+      {
+         case ENTRY_MODE_PROXIMAL: entryStr = "Proximal"; break;
+         case ENTRY_MODE_MIDPOINT: entryStr = "Midpoint"; break;
+         case ENTRY_MODE_DISTAL:   entryStr = "Distal"; break;
+      }
+      
+      if(UseMtfExecution)
+         Logger.Info("Config", StringFormat("Entry Mode: %s (NOTE: Forced Proximal for M1 triggers)", entryStr));
+      else
+         Logger.Info("Config", StringFormat("Entry Mode: %s", entryStr));
+      
+      Logger.Info("Config", "--- Execution ---");
+      Logger.Info("Config", StringFormat("Use M1 Confirmation: %s", UseMtfExecution ? "ON" : "OFF"));
+      
+      Logger.Info("Config", "--- Filters ---");
+      Logger.Info("Config", StringFormat("Candle Quality: %s (Ratio: %.2f, Mult: %.2f)", 
+                  UseCandleQuality ? "ON" : "OFF", MinBodyRatio, AvgBodyMult));
+      Logger.Info("Config", StringFormat("Structure: %s (Lookback: %d)", UseStructure ? "ON" : "OFF", StructLookback));
+      Logger.Info("Config", StringFormat("Trend: %s (EMA: %d)", UseTrendFilter ? "ON" : "OFF", TrendEmaPeriod));
+      Logger.Info("Config", StringFormat("ATR: %s (Per: %d, Min: %.1f)", UseAtrFilter ? "ON" : "OFF", AtrPeriod, MinAtrPips));
+      
+      Logger.Info("Config", "------------------------");
+     }
   };
 
 CConfig Config;

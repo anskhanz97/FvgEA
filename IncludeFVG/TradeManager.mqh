@@ -39,107 +39,197 @@ public:
      {
       m_trade.SetMarginMode();
       m_trade.SetTypeFillingBySymbol(Symbol());
-      m_trade.LogLevel(LOG_LEVEL_ERRORS);
+      m_trade.LogLevel(LOG_LEVEL_NO); // USER: Remove irregular/duplicate logs
      }
                     ~CTradeManager() {}
 
-   // Place Limit Order for FVG
-   // Returns Ticket ID or 0 if failed
-   ulong PlaceOrder(FvgStruct &fvg)
-     {
-      // Basic checks
-      if(fvg.state != FVG_STATE_UNTAPPED) return 0;
-      if(fvg.ticket > 0) return fvg.ticket; // Already placed
-      
-      ulong fvgMagic = (ulong)fvg.creationTime;
-      m_trade.SetExpertMagicNumber(fvgMagic);
-      
-      int digits = (int)SymbolInfoInteger(Symbol(), SYMBOL_DIGITS);
-      double pipVal = GetPipPoint(); 
-      
-      // Prices
-      double entryPrice = 0.0;
-      double slPrice = 0.0;
-      double tpPrice = 0.0;
-      
-      string typeStr = "";
-      
-      if(fvg.type == FVG_BULLISH)
-        {
-         typeStr = "BUY LIMIT";
-         
-         // Calculate Entry based on Mode
-         double baseEntry = fvg.topPrice; // Proximal (Default)
-         
-         if(Config.EntryMode == ENTRY_MODE_MIDPOINT)
-            baseEntry = (fvg.topPrice + fvg.bottomPrice) / 2.0;
-         else if(Config.EntryMode == ENTRY_MODE_DISTAL)
-            baseEntry = fvg.bottomPrice; // Extreme (Candle 1 High)
-            
-         entryPrice = NormalizeDouble(baseEntry, digits);
-         
-         // SL: 30 pips below Low of FVG (Distal Edge)
-         // Usually SL reference is always the invalidation point (Distal).
-         // If we enter at Distal, SL is 30 pips below it.
-         // If we enter at Proximal, SL is 30 pips below Distal (Wide SL).
-         // Formula: Distal - Buffer.
-         slPrice = NormalizeDouble(fvg.bottomPrice - (Config.SLPips * pipVal), digits);
-            
-         if(Config.TPPips > 0)
-            tpPrice = NormalizeDouble(entryPrice + (Config.TPPips * pipVal), digits);
-            
-         if(!CheckContext(entryPrice, ORDER_TYPE_BUY_LIMIT)) return 0;
-
-         if(m_trade.BuyLimit(Config.LotSize, entryPrice, Symbol(), slPrice, tpPrice, ORDER_TIME_GTC, 0, fvg.name))
-           {
-             ulong ticket = m_trade.ResultOrder();
-             Logger.Info("TradeManager", StringFormat("Order Placed | Ticket: %I64u | Magic: %I64u | Type: %s | Price: %.5f | SL: %.5f | TP: %.5f", 
-                                      ticket, fvgMagic, typeStr, entryPrice, slPrice, tpPrice));
-             return ticket;
-           }
-        }
-      else // Bearish
-        {
-         typeStr = "SELL LIMIT";
-         
-         double baseEntry = fvg.bottomPrice; // Proximal (Default)
-         
-         if(Config.EntryMode == ENTRY_MODE_MIDPOINT)
+    // Place Limit Order for FVG
+    // Returns Ticket ID or 0 if failed
+    ulong PlaceOrder(FvgStruct &fvg, ulong magicOverride = 0)
+      {
+       // Basic checks
+       if(fvg.state != FVG_STATE_UNTAPPED) return 0;
+       if(fvg.ticket > 0) return fvg.ticket; // Already placed in this session
+       
+       // Determination of Magic Number
+       ulong fvgMagic = (magicOverride > 0) ? magicOverride : (ulong)fvg.creationTime;
+       
+       // SECURITY CHECK: Is this setup already traded?
+       if(IsAlreadyTraded(fvgMagic))
+         {
+          Logger.Info("TradeManager", StringFormat("Skipping Setup %s: Limit Order Already Exists in History/Active (Magic: %I64u)", fvg.name, fvgMagic));
+          fvg.state = FVG_STATE_FILLED; // Mark as handled
+          return 0;
+         }
+       
+       m_trade.SetExpertMagicNumber(fvgMagic);
+       
+       int digits = (int)SymbolInfoInteger(Symbol(), SYMBOL_DIGITS);
+       double pipVal = GetPipPoint(); 
+       
+       // Prices
+       double entryPrice = 0.0;
+       double slPrice = 0.0;
+       double tpPrice = 0.0;
+       
+       string typeStr = "";
+       
+       // Determine Effective Entry Mode
+       ENUM_FVG_ENTRY_MODE effectiveMode = Config.EntryMode;
+       string modeName = "";
+       
+       // FORCE Proximal for M1 if MTF is Enabled
+       if(Config.UseMtfExecution && fvg.timeframe == PERIOD_M1)
+         {
+          effectiveMode = ENTRY_MODE_PROXIMAL;
+          modeName = "Forced Proximal (MTF Trigger)";
+         }
+       else
+         {
+          switch(effectiveMode)
+            {
+             case ENTRY_MODE_PROXIMAL: modeName = "Proximal"; break;
+             case ENTRY_MODE_MIDPOINT: modeName = "Midpoint"; break;
+             case ENTRY_MODE_DISTAL:   modeName = "Distal"; break;
+            }
+         }
+       
+       if(fvg.type == FVG_BULLISH)
+         {
+          typeStr = "BUY LIMIT";
+          
+          // Calculate Entry based on Effective Mode
+          double baseEntry = fvg.topPrice; // Proximal
+          
+          if(effectiveMode == ENTRY_MODE_MIDPOINT)
              baseEntry = (fvg.topPrice + fvg.bottomPrice) / 2.0;
-         else if(Config.EntryMode == ENTRY_MODE_DISTAL)
-             baseEntry = fvg.topPrice; // Extreme (Candle 1 Low)
+          else if(effectiveMode == ENTRY_MODE_DISTAL)
+             baseEntry = fvg.bottomPrice;
              
-         entryPrice = NormalizeDouble(baseEntry, digits);
+          entryPrice = NormalizeDouble(baseEntry, digits);
+          
+          // SL: 30 pips below Low of FVG (Distal Edge)
+          slPrice = NormalizeDouble(fvg.bottomPrice - (Config.SLPips * pipVal), digits);
+             
+          if(Config.TPPips > 0)
+             tpPrice = NormalizeDouble(entryPrice + (Config.TPPips * pipVal), digits);
+             
+          if(!CheckContext(entryPrice, ORDER_TYPE_BUY_LIMIT)) return 0;
+ 
+          if(m_trade.BuyLimit(Config.LotSize, entryPrice, Symbol(), slPrice, tpPrice, ORDER_TIME_GTC, 0, fvg.name))
+            {
+              ulong ticket = m_trade.ResultOrder();
+              Logger.Info("TradeManager", StringFormat("[%s] Order Placed | Ticket: %I64u | Magic: %I64u | Type: %s | Mode: %s | Price: %.5f | SL: %.5f | TP: %.5f", 
+                                       fvg.name, ticket, fvgMagic, typeStr, modeName, entryPrice, slPrice, tpPrice));
+              return ticket;
+            }
+         }
+       else // Bearish
+         {
+          typeStr = "SELL LIMIT";
+          
+          double baseEntry = fvg.bottomPrice; // Proximal
+          
+          if(effectiveMode == ENTRY_MODE_MIDPOINT)
+              baseEntry = (fvg.topPrice + fvg.bottomPrice) / 2.0;
+          else if(effectiveMode == ENTRY_MODE_DISTAL)
+              baseEntry = fvg.topPrice;
+              
+          entryPrice = NormalizeDouble(baseEntry, digits);
+          
+          // SL: 30 pips above High of FVG (Distal Edge)
+          slPrice = NormalizeDouble(fvg.topPrice + (Config.SLPips * pipVal), digits);
+             
+          if(Config.TPPips > 0)
+             tpPrice = NormalizeDouble(entryPrice - (Config.TPPips * pipVal), digits);
+ 
+          if(!CheckContext(entryPrice, ORDER_TYPE_SELL_LIMIT)) return 0;
+ 
+          if(m_trade.SellLimit(Config.LotSize, entryPrice, Symbol(), slPrice, tpPrice, ORDER_TIME_GTC, 0, fvg.name))
+            {
+              ulong ticket = m_trade.ResultOrder();
+              Logger.Info("TradeManager", StringFormat("[%s] Order Placed | Ticket: %I64u | Magic: %I64u | Type: %s | Mode: %s | Price: %.5f | SL: %.5f | TP: %.5f", 
+                                       fvg.name, ticket, fvgMagic, typeStr, modeName, entryPrice, slPrice, tpPrice));
+              return ticket;
+            }
+         }
          
-         // SL: 30 pips above High of FVG (Distal Edge)
-         slPrice = NormalizeDouble(fvg.topPrice + (Config.SLPips * pipVal), digits);
-            
-         if(Config.TPPips > 0)
-            tpPrice = NormalizeDouble(entryPrice - (Config.TPPips * pipVal), digits);
-
-         if(!CheckContext(entryPrice, ORDER_TYPE_SELL_LIMIT)) return 0;
-
-         if(m_trade.SellLimit(Config.LotSize, entryPrice, Symbol(), slPrice, tpPrice, ORDER_TIME_GTC, 0, fvg.name))
-           {
-             ulong ticket = m_trade.ResultOrder();
-             Logger.Info("TradeManager", StringFormat("Order Placed | Ticket: %I64u | Magic: %I64u | Type: %s | Price: %.5f | SL: %.5f | TP: %.5f", 
-                                      ticket, fvgMagic, typeStr, entryPrice, slPrice, tpPrice));
-             return ticket;
-           }
-        }
-        
-      // If we are here, it failed
-      uint err = m_trade.ResultRetcode();
-      string desc = m_trade.ResultRetcodeDescription();
-      double bid = SymbolInfoDouble(Symbol(), SYMBOL_BID);
-      double ask = SymbolInfoDouble(Symbol(), SYMBOL_ASK);
-      int stopLevel = (int)SymbolInfoInteger(Symbol(), SYMBOL_TRADE_STOPS_LEVEL);
-      int freezeLevel = (int)SymbolInfoInteger(Symbol(), SYMBOL_TRADE_FREEZE_LEVEL); 
+       // If we are here, it failed
+       uint err = m_trade.ResultRetcode();
+       string desc = m_trade.ResultRetcodeDescription();
+       double bid = SymbolInfoDouble(Symbol(), SYMBOL_BID);
+       double ask = SymbolInfoDouble(Symbol(), SYMBOL_ASK);
+       int stopLevel = (int)SymbolInfoInteger(Symbol(), SYMBOL_TRADE_STOPS_LEVEL);
+       
+       Logger.Error("TradeManager", StringFormat("[%s] Order FAILED | Type: %s | Price: %.5f | Ask: %.5f | Bid: %.5f | StopsLvl: %d | Err: %u (%s)", 
+                                 fvg.name, typeStr, entryPrice, ask, bid, stopLevel, err, desc));
+                                 
+       // USER: Mark as filled on failure to prevent infinite log spam for invalid historical zones
+       fvg.state = FVG_STATE_FILLED; 
+       return 0;
+      }
+ 
+    // Comprehensive Trade Search
+    bool IsAlreadyTraded(ulong magic, datetime &outTapTime)
+      {
+       string sym = Symbol();
+       outTapTime = 0;
+       
+       // 1. Check Active Orders
+       for(int i = OrdersTotal() - 1; i >= 0; i--)
+         {
+          ulong ticket = OrderGetTicket(i);
+          if(OrderSelect(ticket))
+            {
+             if(OrderGetInteger(ORDER_MAGIC) == magic && OrderGetString(ORDER_SYMBOL) == sym) return true;
+            }
+         }
+         
+       // 2. Check Active Positions
+       for(int i = PositionsTotal() - 1; i >= 0; i--)
+         {
+          ulong ticket = PositionGetTicket(i);
+          if(PositionSelectByTicket(ticket))
+            {
+             if(PositionGetInteger(POSITION_MAGIC) == magic && PositionGetString(POSITION_SYMBOL) == sym) return true;
+            }
+         }
+         
+       // 3. Check History (Last 24h)
+       if(HistorySelect(TimeCurrent() - 86400, TimeCurrent()))
+         {
+          for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
+            {
+             ulong dTicket = HistoryDealGetTicket(i);
+             if(HistoryDealGetInteger(dTicket, DEAL_MAGIC) == magic && HistoryDealGetString(dTicket, DEAL_SYMBOL) == sym)
+               {
+                outTapTime = (datetime)HistoryDealGetInteger(dTicket, DEAL_TIME);
+                return true;
+               }
+            }
+         }
+       return false;
+      }
       
-      Logger.Error("TradeManager", StringFormat("Order FAILED | Type: %s | Price: %.5f | Ask: %.5f | Bid: %.5f | StopLvl: %d | Err: %u (%s)", 
-                                typeStr, entryPrice, ask, bid, stopLevel, err, desc));
-      return 0;
-     }
+    // Overload for simple checks
+    bool IsAlreadyTraded(ulong magic) { datetime t; return IsAlreadyTraded(magic, t); }
+ 
+    // Startup Sync: Mark already traded FVGs as FILLED
+    void SyncFvgStates(FvgStruct &fvgs[])
+      {
+       for(int i=0; i<ArraySize(fvgs); i++)
+         {
+          if(fvgs[i].state == FVG_STATE_UNTAPPED)
+            {
+             datetime t = 0;
+             if(IsAlreadyTraded((ulong)fvgs[i].creationTime, t))
+               {
+                fvgs[i].state = FVG_STATE_FILLED;
+                fvgs[i].tapTime = t;
+               }
+            }
+         }
+      }
 
 private:
    // Pre-Check Validity

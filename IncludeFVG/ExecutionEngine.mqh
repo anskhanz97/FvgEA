@@ -85,12 +85,19 @@ public:
                   string originalName = m1.name;
                   m1.name = m_active_m5_fvgs[k].name + "_Micro"; // New Name: [M5_ID]_Micro
                   
-                  ulong ticket = trader.PlaceOrder(m1);
+                  ulong ticket = trader.PlaceOrder(m1, (ulong)m_active_m5_fvgs[k].creationTime);
+                  
+                  // Sync state back to the list (Success or Failure)
+                  m1_fvgs[i].ticket = m1.ticket; 
+                  m1_fvgs[i].state = m1.state; 
+                  
                   if(ticket > 0)
                     {
-                     m1_fvgs[i].ticket = ticket; 
-                     m1_fvgs[i].state = FVG_STATE_FILLED; 
                      m1_fvgs[i].name = m1.name; // Keep new name
+                     
+                     // USER: Update parent context so visuals stop extending immediately
+                     m_active_m5_fvgs[k].state = FVG_STATE_FILLED;
+                     m_active_m5_fvgs[k].tapTime = TimeCurrent(); 
                     }
                   else
                     {

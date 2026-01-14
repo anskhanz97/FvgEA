@@ -45,7 +45,8 @@ int OnInit()
    Engine = new CExecutionEngine();
    
    Logger.SetLevel(LOG_LEVEL_DEBUG); // As requested by user for detailed logs
-   Logger.Info("Init", "Multi-Timeframe FVG EA Started. M5 Context / M1 Execution.");
+   Logger.Info("Init", "Multi-Timeframe FVG EA Started. 2 Modes-  1- M5 or 2- M5 Context / M1 Execution.");
+   Config.LogSettings();
    
    // --- Historical Scan (Optional, mostly for Visual Context) ---
    // We scan M5 history to populate 'Context' list
@@ -211,6 +212,9 @@ void UpdateM5Context()
                }
            } 
         }
+      
+      // Sync with MT5 History (Mark already traded)
+      Trader.SyncFvgStates(validFvgs);
       
       // 5. Update Engine
       Engine.UpdateContext(validFvgs);

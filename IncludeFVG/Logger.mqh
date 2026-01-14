@@ -27,34 +27,34 @@ public:
    // Basic Log with Tag
    void Log(string tag, string msg)
      {
-      PrintFormat("[%s] %s", tag, msg);
+      PrintFormat("%s", msg);
      }
 
    // Detailed Info
    void Info(string source, string msg)
      {
       if(m_level <= LOG_LEVEL_INFO)
-         PrintFormat("[INFO][%s] %s", source, msg);
+         PrintFormat("%s", msg);
      }
 
    // Debug for granular tracing
    void Debug(string source, string msg)
      {
       if(m_level <= LOG_LEVEL_DEBUG)
-         PrintFormat("[DEBUG][%s] %s", source, msg);
+         PrintFormat("%s", msg);
      }
      
    // Overload for numeric debug
    void DebugVal(string source, string msg, double val)
      {
       if(m_level <= LOG_LEVEL_DEBUG)
-         PrintFormat("[DEBUG][%s] %s: %.5f", source, msg, val);
+         PrintFormat("%s: %.5f", msg, val);
      }
 
    // Error tracking
    void Error(string source, string msg)
      {
-      PrintFormat("[ERROR][%s] %s", source, msg);
+      PrintFormat("!! ERROR !! %s", msg); // Minimal indicator for errors
      }
   };
 
