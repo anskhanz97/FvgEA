@@ -86,10 +86,18 @@ public:
       
     public:
      
-   void ClearAll()
-     {
-      ObjectsDeleteAll(0, "BU-");
-      ObjectsDeleteAll(0, "BR-");
-     }
+    void ClearAll()
+      {
+       long chartId = ChartFirst();
+       while(chartId >= 0)
+         {
+          if(ChartSymbol(chartId) == Symbol())
+            {
+             ObjectsDeleteAll(chartId, "BU-");
+             ObjectsDeleteAll(chartId, "BE-");
+            }
+          chartId = ChartNext(chartId);
+         }
+      }
   };
 //+------------------------------------------------------------------+

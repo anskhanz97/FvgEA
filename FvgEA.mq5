@@ -59,6 +59,8 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
+   if(Visuals != NULL) Visuals.ClearAll();
+   
    delete DetectorM5;
    delete DetectorM1;
    delete Visuals;
